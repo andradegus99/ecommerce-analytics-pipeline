@@ -1,2 +1,54 @@
-.env
+# ==========================================
+# 1. Dados Local e Bancos de Dados
+# ==========================================
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite3
 
+# Ignora todos os arquivos da pasta raw, mas mantém a pasta estruturada no Git
+data/raw/*
+!data/raw/.gitkeep
+
+# ==========================================
+# 2. Segredos e Variáveis de Ambiente
+# ==========================================
+.env
+.env.local
+*.pem
+*.key
+
+# ==========================================
+# 3. Python & Ambientes Virtuais
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+
+# ==========================================
+# 4. dbt (Arquivos gerados pelo dbt run/test)
+# ==========================================
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/logs/
+profiles.yml
+
+# ==========================================
+# 5. Airflow (Logs e bancos locais de teste)
+# ==========================================
+logs/
+airflow.cfg
+airflow.db
+airflow-webserver.pid
+
+# ==========================================
+# 6. IDEs e Arquivos de Sistema
+# ==========================================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
