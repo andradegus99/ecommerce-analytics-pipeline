@@ -1,11 +1,40 @@
 import duckdb
+import subprocess
+import sys
+from pathlib import Path
 
-conn = duckdb.connect("data/warehouse.duckdb")
+BASE_DIR = Path(__file__).resolve().parent.parent
+db_path = BASE_DIR / "data" / "warehouse.duckdb"
+ingestion_script = BASE_DIR / "src" / "ingestion" / "load_csv_to_duckdb.py"
 
-print("--- Tabelas existentes no banco ---")
-conn.sql("SHOW TABLES").show()
+print("=== SCRIPT DE TESTE ===")
+print("1. Dropando todas as tabelas do banco...\n")
 
-# print("\n--- Primeiras 5 linhas da tabela raw_customers ---")
-# conn.sql("SELECT * FROM raw_customers LIMIT 5").show()
+conn = duckdb.connect(str(db_path))
+
+tabelas = [row[0] for row in conn.sql("SHOW TABLES").fetchall()]
+
+if not tabelas:
+    print("  Nenhuma tabela encontrada no banco.")
+else:
+    for tabela in tabelas:
+        conn.execute(f"DROP TABLE IF EXISTS {tabela}")
+        print(f"  ✓ Tabela '{tabela}' dropada.")
 
 conn.close()
+
+print(f"\n2. Rodando {ingestion_script.name}...\n")
+print("=" * 50)
+
+resultado = subprocess.run(
+    [sys.executable, str(ingestion_script)],
+    cwd=str(BASE_DIR)
+)
+
+print("=" * 50)
+
+if resultado.returncode == 0:
+    print("\n✓ Script finalizado com sucesso!")
+else:
+    print(f"\n✗ Script finalizou com erro (código {resultado.returncode}).")
+    sys.exit(resultado.returncode)
