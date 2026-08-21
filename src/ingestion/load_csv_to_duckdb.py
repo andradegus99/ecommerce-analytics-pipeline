@@ -2,6 +2,8 @@ import duckdb
 from pathlib import Path
 import time
 import sys
+import os
+import argparse
 from datetime import datetime
 import re
 
@@ -12,31 +14,71 @@ sys.path.append(str(FUNCTIONS_DIR))
 from project_functions import get_surrogate_key_expr, merge_into_table, calculate_merge_metrics
 from table_config import TABLE_CONFIG
 
+# Parser de argumentos CLI
+parser = argparse.ArgumentParser(description="Ingestão de dados RAW no DuckDB")
+parser.add_argument(
+    "--date",
+    type=str,
+    default=None,
+    help="Data da partição a ser ingerida (formato YYYY-MM-DD). Ex: 2026-08-20"
+)
+parser.add_argument(
+    "--all",
+    action="store_true",
+    help="Processa todas as partições existentes em ordem cronológica (backfill)."
+)
+args = parser.parse_args()
+
 print("Iniciando processo de geração das tabelas RAW.\n")
 inicio = time.perf_counter()
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 raw_dir = BASE_DIR / "data" / "raw"
-db_path = BASE_DIR / "data" / "warehouse.duckdb"
+# Permite sobrescrever o caminho do banco via variável de ambiente (útil para testes isolados)
+db_path = Path(os.getenv("DUCKDB_PATH", BASE_DIR / "data" / "warehouse.duckdb"))
 
 if not raw_dir.exists():
     print(f"Erro: A pasta '{raw_dir}' não foi encontrada!")
     sys.exit(1)
 
-# Varre as partições YYYY/MM/DD em ordem cronológica e coleta todos os CSVs
-csv_files: list[tuple[Path, str]] = []
+# Coleta todas as partições YYYY/MM/DD disponíveis
+all_partitions: dict[str, list[Path]] = {}
 
 for year_dir in sorted(raw_dir.glob("[0-9][0-9][0-9][0-9]")):
     for month_dir in sorted(year_dir.glob("[0-9][0-9]")):
         for day_dir in sorted(month_dir.glob("[0-9][0-9]")):
-            partition_date = f"{year_dir.name}-{month_dir.name}-{day_dir.name}"
-            for csv_file in sorted(day_dir.glob("*.csv")):
-                csv_files.append((csv_file, partition_date))
+            part_date = f"{year_dir.name}-{month_dir.name}-{day_dir.name}"
+            files = sorted(day_dir.glob("*.csv"))
+            if files:
+                all_partitions[part_date] = files
 
-if not csv_files:
+if not all_partitions:
     print(f"Erro: Nenhum arquivo .csv encontrado nas partições YYYY/MM/DD dentro de '{raw_dir}'.")
     sys.exit(1)
+
+# Define quais arquivos serão processados de acordo com os parâmetros
+csv_files: list[tuple[Path, str]] = []
+
+if args.date:
+    # Processa uma partição específica informada (ex: Airflow {{ ds }})
+    target_date = args.date.strip()
+    if target_date not in all_partitions:
+        print(f"Aviso: Nenhuma partição encontrada para a data '{target_date}'.")
+        sys.exit(0)
+    for f in all_partitions[target_date]:
+        csv_files.append((f, target_date))
+elif args.all:
+    # Processa todas as partições em ordem cronológica (modo backfill)
+    for part_date in sorted(all_partitions.keys()):
+        for f in all_partitions[part_date]:
+            csv_files.append((f, part_date))
+else:
+    # Padrão: processa a partição mais recente disponível
+    latest_date = sorted(all_partitions.keys())[-1]
+    print(f"Nenhum parâmetro informado. Processando a partição mais recente: {latest_date}")
+    for f in all_partitions[latest_date]:
+        csv_files.append((f, latest_date))
 
 print("Conectando ao DuckDB...")
 conn = duckdb.connect(db_path)
@@ -64,7 +106,7 @@ except Exception as e:
     print(f"Erro ao criar tabela de log: {e}")
     sys.exit(1)
 
-# Varre todos os CSVs das partições YYYY/MM/DD em ordem cronológica
+# Varre todos os CSVs selecionados
 for csv_file, partition_date in csv_files:
 
     clean_name = re.sub(r'olist_|_dataset|_\d{4}_\d{2}_\d{2}', '', csv_file.stem)
